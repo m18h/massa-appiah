@@ -1,0 +1,20 @@
+[project]
+name = "ai-mechanic-obd"
+version = "0.1.0"
+description = "AI Mechanic"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "console-menu>=0.8.0",
+    "influxdb-client>=1.49.0",
+    "loguru>=0.7.3",
+    "obd>=0.7.3",
+    "openai>=2.1.0",
+    "python-dotenv>=1.1.1",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.9.0",
+    "ruff>=0.13.3",
+]
