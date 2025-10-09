@@ -17,6 +17,7 @@ $ uv sync
 ### Run
 
 ```bash
+$ docker compose up -d db
 $ uv run main.py
 ...
 ```

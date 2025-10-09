@@ -48,6 +48,14 @@ def check_engine(conn):
 
 
 if __name__ == "__main__":
+    # Configure logger
+    logger.remove()
+    logger.add(
+        lambda msg: print(msg, end=""),
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+        level="INFO",
+    )
+    
     conn = obd.OBD()
     if OBD_DEVICE_PORT:
         conn = obd.OBD(OBD_DEVICE_PORT)

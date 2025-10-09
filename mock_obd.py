@@ -227,8 +227,8 @@ def collect_and_store_obd_data(duration_seconds=60, interval=2):
 
 
 if __name__ == "__main__":
-    # Configure loguru logger
-    logger.remove()  # Remove default handler
+    # Configure logger
+    logger.remove()
     logger.add(
         lambda msg: print(msg, end=""),
         format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
