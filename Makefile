@@ -17,7 +17,7 @@ init:
 
 run:
 	docker compose up -d db
-	uv run main.py
+	uv run fastapi dev main.py
 
 run-mock:
 	docker compose up -d db

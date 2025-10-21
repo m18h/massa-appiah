@@ -1,98 +1,118 @@
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import random
+from datetime import datetime, timedelta
+from utils import DB, VEHICLE_ID
 import os
-from time import sleep
 
-import obd
-from consolemenu import ConsoleMenu
-from consolemenu.items import FunctionItem
-from dotenv import load_dotenv
-from loguru import logger
-from obd import OBDStatus
-from openai import OpenAI
+app = FastAPI(title="OBD Diagnostics Dashboard")
 
-load_dotenv()
+# Create directories if they don't exist
+os.makedirs("static", exist_ok=True)
+os.makedirs("templates", exist_ok=True)
 
+# Mount static files and templates
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-OBD_DEVICE_PORT = os.getenv("OBD_DEVICE_PORT")
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Main dashboard page"""
+    return templates.TemplateResponse("dashboard.html", {"request": request})
 
-
-def _run_obd_command(conn, cmd):
+@app.get("/api/obd-data")
+async def get_obd_data():
+    """Get current OBD data"""
     try:
-        logger.debug(f"OBD :: CMD :: {cmd}")
+        with DB() as db:
+            latest = db.get_latest_reading(VEHICLE_ID)
+            if not latest:
+                # Return mock data if no real data available
+                return get_mock_data()
+            return latest
+    except Exception:
+        # Return mock data on error
+        return get_mock_data()
 
-        res = conn.query(cmd)
-        return res.value
-    except Exception as e:
-        logger.error("OBD :: CMD ERROR :: {cmd} - {e}")
+@app.get("/api/dashboard-content", response_class=HTMLResponse)
+async def get_dashboard_content(request: Request):
+    """Get dashboard content as HTML partial"""
+    try:
+        with DB() as db:
+            latest = db.get_latest_reading(VEHICLE_ID)
+            if not latest:
+                latest = get_mock_data()
+    except Exception:
+        latest = get_mock_data()
+    
+    return templates.TemplateResponse("dashboard_content.html", {
+        "request": request,
+        "data": latest
+    })
 
+@app.get("/api/chart-data")
+async def get_chart_data():
+    """Get historical data for charts"""
+    try:
+        with DB() as db:
+            # Get last 24 hours of data
+            data = db.get_recent_data(VEHICLE_ID, hours=24, limit=100)
+            return {"data": data}
+    except Exception:
+        # Return mock chart data
+        now = datetime.now()
+        mock_data = []
+        for i in range(24):
+            timestamp = now - timedelta(hours=23-i)
+            mock_data.append({
+                "time": timestamp.isoformat(),
+                "rpm": random.randint(800, 3000),
+                "speed": random.randint(0, 80),
+                "coolant_temp": random.randint(80, 105),
+                "fuel_level": random.randint(20, 100)
+            })
+        return {"data": mock_data}
 
-def _run_llm_query(query):
-    client = OpenAI(
-        base_url="https://openrouter.ai/api/v1",
-        api_key=os.getenv("OPENROUTER_API_KEY"),
-    )
-    completion = client.chat.completions.create(
-        model="openai/gpt-4o",
-        messages=[{"role": "user", "content": query}],
-    )
-    return completion.choices[0].message.content
+@app.get("/api/mil-status")
+async def get_mil_status():
+    """Get MIL (Check Engine Light) status"""
+    try:
+        with DB() as db:
+            history = db.get_mil_status_history(VEHICLE_ID, hours=24)
+            current_status = history[-1] if history else {"status": False, "codes": []}
+            return current_status
+    except Exception:
+        return {
+            "status": True,
+            "codes": ["P0113"],
+            "description": "Intake Air Temperature Sensor Circuit High"
+        }
 
-
-def menu_car_info(conn):
-    res_speed = _run_obd_command(conn, obd.commands.SPEED)
-    if res_speed:
-        logger.info(f"OBD :: speed - {res_speed.to('kph')}")
-
-
-def check_engine(conn):
-    pass
-
+def get_mock_data():
+    """Generate mock OBD data for demonstration"""
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "vehicle_id": VEHICLE_ID,
+        "engine_rpm": random.randint(800, 3000),
+        "speed": random.randint(0, 80),
+        "throttle_position": random.randint(0, 100),
+        "engine_load": random.randint(20, 90),
+        "coolant_temp": random.randint(80, 105),
+        "oil_temp": random.randint(85, 110),
+        "intake_temp": random.randint(15, 35),
+        "ambient_temp": random.randint(10, 30),
+        "fuel_level": random.randint(20, 100),
+        "fuel_pressure": random.randint(250, 300),
+        "fuel_rate": random.randint(5, 15),
+        "intake_pressure": random.randint(20, 30),
+        "barometric_pressure": random.randint(95, 105),
+        "battery_voltage": round(random.uniform(12.0, 14.5), 1),
+        "distance": random.randint(450, 500),
+        "runtime": random.randint(180, 240)
+    }
 
 if __name__ == "__main__":
-    # Configure logger
-    logger.remove()
-    logger.add(
-        lambda msg: print(msg, end=""),
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-        level="INFO",
-    )
-    
-    conn = obd.OBD()
-    if OBD_DEVICE_PORT:
-        conn = obd.OBD(OBD_DEVICE_PORT)
-
-    logger.info(f"OBD :: CONN :: {conn.status()}")
-
-    while conn.status() == OBDStatus.NOT_CONNECTED:
-        logger.debug("OBD :: CONN :: retrying...")
-        sleep(1)
-        logger.info(f"OBD :: CONN :: {conn.status()}")
-
-    logger.info("OBD :: CONN :: device connected successfully")
-
-    if conn.status() == OBDStatus.OBD_CONNECTED:
-        logger.info("OBD :: CAR :: ignition off")
-
-    if conn.status() == OBDStatus.CAR_CONNECTED:
-        logger.info("OBD :: CAR :: ignition on")
-
-    menu = ConsoleMenu("AI Mechanic")
-
-    menu.append_item(FunctionItem("Get Car Info", menu_car_info, conn))
-    menu.append_item(FunctionItem("Check Engine", check_engine, conn))
-
-    menu.show()
-
-# # no connection is made
-# OBDStatus.NOT_CONNECTED # "Not Connected"
-
-# # successful communication with the ELM327 adapter
-# OBDStatus.ELM_CONNECTED # "ELM Connected"
-
-# # successful communication with the ELM327 adapter,
-# # OBD port connected to the car, ignition off
-# # (not available with argument "check_voltage=False")
-# OBDStatus.OBD_CONNECTED # "OBD Connected"
-
-# # successful communication with the ELM327 and the
-# # vehicle; ignition on
-# OBDStatus.CAR_CONNECTED # "Car Connected"
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
