@@ -1,11 +1,13 @@
+import os
+import random
+from datetime import datetime, timedelta
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-import random
-from datetime import datetime, timedelta
+
 from utils import DB, VEHICLE_ID
-import os
 
 app = FastAPI(title="OBD Diagnostics Dashboard")
 
@@ -17,10 +19,12 @@ os.makedirs("templates", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Main dashboard page"""
     return templates.TemplateResponse("dashboard.html", {"request": request})
+
 
 @app.get("/api/obd-data")
 async def get_obd_data():
@@ -36,6 +40,7 @@ async def get_obd_data():
         # Return mock data on error
         return get_mock_data()
 
+
 @app.get("/api/dashboard-content", response_class=HTMLResponse)
 async def get_dashboard_content(request: Request):
     """Get dashboard content as HTML partial"""
@@ -46,11 +51,11 @@ async def get_dashboard_content(request: Request):
                 latest = get_mock_data()
     except Exception:
         latest = get_mock_data()
-    
-    return templates.TemplateResponse("dashboard_content.html", {
-        "request": request,
-        "data": latest
-    })
+
+    return templates.TemplateResponse(
+        "dashboard_content.html", {"request": request, "data": latest}
+    )
+
 
 @app.get("/api/chart-data")
 async def get_chart_data():
@@ -65,15 +70,18 @@ async def get_chart_data():
         now = datetime.now()
         mock_data = []
         for i in range(24):
-            timestamp = now - timedelta(hours=23-i)
-            mock_data.append({
-                "time": timestamp.isoformat(),
-                "rpm": random.randint(800, 3000),
-                "speed": random.randint(0, 80),
-                "coolant_temp": random.randint(80, 105),
-                "fuel_level": random.randint(20, 100)
-            })
+            timestamp = now - timedelta(hours=23 - i)
+            mock_data.append(
+                {
+                    "time": timestamp.isoformat(),
+                    "rpm": random.randint(800, 3000),
+                    "speed": random.randint(0, 80),
+                    "coolant_temp": random.randint(80, 105),
+                    "fuel_level": random.randint(20, 100),
+                }
+            )
         return {"data": mock_data}
+
 
 @app.get("/api/mil-status")
 async def get_mil_status():
@@ -87,8 +95,9 @@ async def get_mil_status():
         return {
             "status": True,
             "codes": ["P0113"],
-            "description": "Intake Air Temperature Sensor Circuit High"
+            "description": "Intake Air Temperature Sensor Circuit High",
         }
+
 
 def get_mock_data():
     """Generate mock OBD data for demonstration"""
@@ -110,9 +119,11 @@ def get_mock_data():
         "barometric_pressure": random.randint(95, 105),
         "battery_voltage": round(random.uniform(12.0, 14.5), 1),
         "distance": random.randint(450, 500),
-        "runtime": random.randint(180, 240)
+        "runtime": random.randint(180, 240),
     }
+
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)
