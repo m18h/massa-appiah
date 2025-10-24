@@ -1,6 +1,7 @@
 # OBD Diagnostics Dashboard
 
 A real-time vehicle diagnostics dashboard built with FastAPI, TailwindCSS, and HTMX. Monitor your vehicle's OBD-II data with a modern, responsive web interface.
+Currently built to work with Ollama, but can be replaced with any LLM OpenAi compatible API.
 
 ## Features
 

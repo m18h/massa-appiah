@@ -6,11 +6,40 @@ from dotenv import load_dotenv
 from influxdb_client import InfluxDBClient
 from influxdb_client.client.write_api import SYNCHRONOUS
 from loguru import logger
+from pydantic import BaseModel
 
 load_dotenv()
 
 INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET")
 VEHICLE_ID = os.getenv("VEHICLE_ID", "vehicle_001")
+
+
+# ============================================
+# MODELS
+# ============================================
+
+
+class OBDMetric(BaseModel):
+    # time: datetime
+    rpm: int
+    speed: int
+    throttle_position: float
+    engine_load: float
+    coolant_temp: int
+    intake_temp: int
+    oil_temp: int
+    fuel_level: float
+    fuel_pressure: float
+    fuel_rate: float
+    intake_pressure: float
+    battery_voltage: float
+    ambient_temp: int
+    barometric_pressure: float
+    distance: float
+    runtime: int
+    mil_status: bool
+    dtc_count: int
+
 
 # ============================================
 # DB SETUP
@@ -37,17 +66,17 @@ class DB:
             raise ValueError("INFLUXDB_BUCKET environment variable is required")
 
     def __enter__(self):
-        logger.info(f"Connecting to InfluxDB: {self.__url}")
+        logger.debug(f"Connecting to InfluxDB: {self.__url}")
         self.__client = InfluxDBClient(
             url=self.__url, token=self.__token, org=self.__org
         )
-        logger.success(f"Connected to InfluxDB. Writing to bucket: {self.__bucket}")
-        logger.info(f"Vehicle ID: {self.__vehicle_id}")
+        logger.success(f"InfluxDB Connection Opened. Bucket: {self.__bucket}")
+        logger.debug(f"Vehicle ID: {self.__vehicle_id}")
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.__client.close()
-        logger.info("Disconnected from InfluxDB")
+        logger.debug("InfluxDB Connection Closed")
 
     def store_data(self, data):
         write_api = self.__client.write_api(write_options=SYNCHRONOUS)
@@ -55,65 +84,52 @@ class DB:
 
     def get_data(self, query):
         query_api = self.__client.query_api()
-        result = query_api.query(query=query)
+        result = query_api.query(query=query, org=self.__org)
         return result
 
-    def get_recent_data(self, vehicle_id=None, hours=1, limit=100):
-        """Get recent OBD data for a specific vehicle"""
-        vehicle_filter = (
-            f'|> filter(fn: (r) => r["vehicle_id"] == "{vehicle_id}")'
-            if vehicle_id
-            else ""
-        )
+    def get_recent_data(self, hours=1, limit=100):
+        """Get recent OBD data for vehicle"""
 
         query = f"""
         from(bucket: "{self.__bucket}")
           |> range(start: -{hours}h)
           |> filter(fn: (r) => r["_measurement"] == "obd_readings")
-          {vehicle_filter}
+          |> filter(fn: (r) => r["vehicle_id"] == "{self.__vehicle_id}")
           |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
           |> limit(n: {limit})
         """
 
-        query_api = self.__client.query_api()
-        result = query_api.query(query=query, org=self.__org)
+        result = self.get_data(query=query)
         return self._parse_pivoted_results(result)
 
-    def get_latest_reading(self, vehicle_id):
+    def get_latest_reading(self):
         """Get the most recent OBD reading for a vehicle"""
         query = f"""
         from(bucket: "{self.__bucket}")
           |> range(start: -24h)
           |> filter(fn: (r) => r["_measurement"] == "obd_readings")
-          |> filter(fn: (r) => r["vehicle_id"] == "{vehicle_id}")
+          |> filter(fn: (r) => r["vehicle_id"] == "{self.__vehicle_id}")
           |> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
           |> sort(columns: ["_time"], desc: true)
           |> limit(n: 1)
         """
 
-        query_api = self.__client.query_api()
-        result = query_api.query(query=query, org=self.__org)
+        result = self.get_data(query=query)
         data = self._parse_pivoted_results(result)
         return data[0] if data else None
 
-    def get_field_stats(self, field, vehicle_id=None, hours=24):
+    def get_field_stats(self, field, hours=24):
         """Get statistics (min, max, mean) for a specific field"""
-        vehicle_filter = (
-            f'|> filter(fn: (r) => r["vehicle_id"] == "{vehicle_id}")'
-            if vehicle_id
-            else ""
-        )
 
         query = f"""
         from(bucket: "{self.__bucket}")
           |> range(start: -{hours}h)
           |> filter(fn: (r) => r["_measurement"] == "obd_readings")
           |> filter(fn: (r) => r["_field"] == "{field}")
-          {vehicle_filter}
+          |> filter(fn: (r) => r["vehicle_id"] == "{self.__vehicle_id}")
         """
 
-        query_api = self.__client.query_api()
-        result = query_api.query(query=query, org=self.__org)
+        result = self.get_data(query=query)
         values = [record.get_value() for table in result for record in table.records]
 
         if not values:
@@ -127,44 +143,37 @@ class DB:
             "count": len(values),
         }
 
-    def get_aggregated_data(self, field, vehicle_id=None, hours=24, window="10m"):
+    def get_aggregated_data(self, field, hours=24, window="10m"):
         """Get aggregated data for a specific field over time"""
-        vehicle_filter = (
-            f'|> filter(fn: (r) => r["vehicle_id"] == "{vehicle_id}")'
-            if vehicle_id
-            else ""
-        )
 
         query = f"""
         from(bucket: "{self.__bucket}")
           |> range(start: -{hours}h)
           |> filter(fn: (r) => r["_measurement"] == "obd_readings")
           |> filter(fn: (r) => r["_field"] == "{field}")
-          {vehicle_filter}
+          |> filter(fn: (r) => r["vehicle_id"] == "{self.__vehicle_id}")
           |> aggregateWindow(every: {window}, fn: mean, createEmpty: false)
         """
 
-        query_api = self.__client.query_api()
-        result = query_api.query(query=query, org=self.__org)
+        result = self.get_data(query=query)
         return [
             {"time": record.get_time().isoformat(), "value": record.get_value()}
             for table in result
             for record in table.records
         ]
 
-    def get_mil_status_history(self, vehicle_id, hours=24):
+    def get_mil_status_history(self, hours=24):
         """Get check engine light status history"""
         query = f"""
         from(bucket: "{self.__bucket}")
           |> range(start: -{hours}h)
           |> filter(fn: (r) => r["_measurement"] == "obd_readings")
-          |> filter(fn: (r) => r["vehicle_id"] == "{vehicle_id}")
+          |> filter(fn: (r) => r["vehicle_id"] == "{self.__vehicle_id}")
           |> keep(columns: ["_time", "mil_status", "dtc_count"])
           |> group()
         """
 
-        query_api = self.__client.query_api()
-        result = query_api.query(query=query, org=self.__org)
+        result = self.get_data(query=query)
         return self._parse_results(result)
 
     def _parse_pivoted_results(self, result):
@@ -236,7 +245,9 @@ class MaintenanceAdvisor(dspy.Signature):
     obd_readings = dspy.InputField(desc="Current vehicle sensor readings")
     dtc_info = dspy.InputField(desc="Diagnostic trouble code information")
     mileage = dspy.InputField(desc="Total distance traveled")
-    recommendations = dspy.OutputField(desc="Prioritized maintenance recommendations")
+    recommendations = dspy.OutputField(
+        desc="Maintenance recommendations based on OBD data"
+    )
 
 
 class OBDQueryModule(dspy.Module):
@@ -295,24 +306,17 @@ class MaintenanceModule(dspy.Module):
 class LLM:
     """
     LLM engine for querying and analyzing OBD data
-
-    Popular models on OpenRouter:
-    - openai/gpt-4o-mini (fast, cheap)
-    - openai/gpt-4o (most capable)
-    - anthropic/claude-3.5-sonnet
-    - google/gemini-pro-1.5
     """
 
-    def __init__(self, model="openai/gpt-4o-mini"):
+    def __init__(self, model=None):
         # Setup InfluxDB
         self.__db = DB()
 
-        # Setup DSPy with OpenRouter
+        # Setup DSPy with LLM
         lm = dspy.LM(
-            model="openai/gpt-4o-mini",
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-            api_base="https://openrouter.ai/api/v1",
-            # model_type="chat",
+            model=os.getenv("LLM_API_MODEL", "ollama_chat/tinyllama"),
+            api_key=os.getenv("LLM_API_KEY", "ollama"),
+            api_base=os.getenv("LLM_API_BASE", "http://localhost:11434"),
         )
         dspy.settings.configure(lm=lm)
 
@@ -336,6 +340,8 @@ class LLM:
 
         # Format data for DSPy
         formatted_data = self._format_readings(data)
+
+        # print(data)
 
         # Get response from DSPy
         response = self.__query_module(obd_data=formatted_data, question=question)
@@ -409,7 +415,7 @@ class LLM:
         # Get mileage
         mileage = latest.get("distance", 0)
 
-        response = self.maintenance_module(
+        response = self.__maintenance_module(
             obd_readings=readings_formatted, dtc_info=dtc_info, mileage=str(mileage)
         )
         return response.recommendations
