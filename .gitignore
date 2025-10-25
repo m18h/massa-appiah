@@ -12,4 +12,4 @@ wheels/
 db/
 .env
 *.jsonl
-test*.py
+test*

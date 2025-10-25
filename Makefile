@@ -15,10 +15,12 @@ format format_diff:
 init:
 	docker compose pull
 
-run:
+start-db:
 	docker compose up -d db
-	uv run fastapi dev main.py
 
-run-mock:
-	docker compose up -d db
+run: start-db
+	uv run app.py
+
+run-mock: start-db
 	uv run mock_obd.py
+	uv run mock_query.py

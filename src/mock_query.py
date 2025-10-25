@@ -1,14 +1,14 @@
 import json
 import os
+
+from llama_index.core import Settings, VectorStoreIndex
+from llama_index.core.schema import Document
+from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.llms.ollama import Ollama
 from loguru import logger
 
 # from utils import LLM
 from utils import DB
-from llama_index.core import VectorStoreIndex
-from llama_index.core import Settings
-from llama_index.core.schema import Document
-from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.llms.ollama import Ollama
 
 SYSTEM_PROMPT = """
 You are an expert automotive diagnostic assistant analyzing OBD-II (On-Board Diagnostics) data.

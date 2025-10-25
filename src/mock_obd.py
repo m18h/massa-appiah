@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from influxdb_client import Point
 from loguru import logger
 
-from utils import DB
+from src.utils import DB
 
 load_dotenv()
 
